@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -10,28 +12,27 @@ from telegram.ext import (
     filters,
 )
 
+# Configuration du logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-import threading
-from flask import Flask
+# --- SERVEUR FLASK (Pour valider le Web Service Render) ---
+web_app = Flask(__name__)
 
-# Petit serveur Web dummy pour valider le Web Service sur Render
-app = Flask(__name__)
-
-@app.route('/')
+@web_app.route('/')
 def home():
     return "Bot Telegram actif !"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    web_app.run(host="0.0.0.0", port=port)
 
-# Lancer Flask dans un thread séparé
+# Lancement du serveur Web dans un thread séparé
 threading.Thread(target=run_flask, daemon=True).start()
 
+# --- BOT TELEGRAM ---
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 
@@ -43,9 +44,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Je suis le bot de reformatage de messages avec boutons.\n\n"
         "📌 **Comment m'utiliser ?**\n"
         "1. Ajoutez-moi à votre groupe ou canal.\n"
-        "2. Donnez-moi les droits d'administrateur (notamment la suppression de messages).\n"
+        "2. Donnez-moi les droits d'administrateur (suppression de messages).\n"
         "3. Lorsqu'un admin publie un message contenant des liens, je proposerai de le reformater "
-        "ou de vous envoyer une prévisualisation ici même en privé."
+        "ou d'envoyer une prévisualisation ici en privé."
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
@@ -61,8 +62,9 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     chat_member = await context.bot.get_chat_member(chat.id, user.id)
     return chat_member.status in ["administrator", "creator"]
 
+
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Intercepte les messages des admins et propose la reformatage/prévisualisation."""
+    """Intercepte les messages des admins et propose le reformatage/prévisualisation."""
     message = update.effective_message
     
     if not message or not message.text or not await is_admin(update, context):
@@ -82,7 +84,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not links:
         return
 
-    # Sauvegarde des données associées au message
     msg_key = f"msg_{message.chat.id}_{message.message_id}"
     context.bot_data[msg_key] = {
         "text": message.text,
@@ -92,7 +93,6 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         "user_id": update.effective_user.id
     }
 
-    # Boutons d'action rapides dans le groupe
     keyboard = [
         [
             InlineKeyboardButton("✨ Reformater direct", callback_data=f"pub_{msg_key}"),
@@ -108,6 +108,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
+
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Gère l'ensemble des interactions avec les boutons."""
@@ -131,17 +132,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = stored_data["chat_id"]
     orig_msg_id = stored_data["message_id"]
 
-    # Construction du clavier de liens
     link_buttons = []
     for label, url in links:
         btn_label = label if len(label) <= 30 else label[:27] + "..."
         link_buttons.append([InlineKeyboardButton(text=f"🔗 {btn_label}", url=url)])
 
-    # --- CAS 1 : PRÉVISUALISATION PRIVÉE ---
     if action == "prev":
         user_id = query.from_user.id
-        
-        # On ajoute un bouton de validation au clavier de prévisualisation
         preview_keyboard = list(link_buttons)
         preview_keyboard.append([
             InlineKeyboardButton("🚀 Valider et publier dans le groupe", callback_data=f"pub_{msg_key}")
@@ -155,16 +152,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 disable_web_page_preview=True,
                 parse_mode="Markdown"
             )
-            # Met à jour le message d'invite dans le groupe
             await query.edit_message_text("📩 La prévisualisation vous a été envoyée en message privé.")
         except Exception:
             await query.edit_message_text(
                 "❌ Impossible de vous envoyer un MP. Assurez-vous d'avoir démarré le bot en privé (`/start`)."
             )
 
-    # --- CAS 2 : PUBLICATION DANS LE GROUPE ---
     elif action == "pub":
-        # Envoie le message propre dans le groupe
         await context.bot.send_message(
             chat_id=chat_id,
             text=original_text,
@@ -172,7 +166,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             disable_web_page_preview=True
         )
 
-        # Nettoyage
         if query.message.chat.type == "private":
             await query.edit_message_text("✅ Message publié avec succès dans le groupe !")
         else:
@@ -181,23 +174,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=orig_msg_id)
         except Exception:
-            pass  # Le bot n'a pas la permission de suppression
+            pass
 
-        # Suppression des données en cache
         context.bot_data.pop(msg_key, None)
+
 
 def main():
     if not TOKEN:
         raise ValueError("Le jeton TELEGRAM_BOT_TOKEN est manquant.")
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    bot_app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_message))
-    app.add_handler(CallbackQueryHandler(button_callback))
+    # Enregistrement des handlers (Correction principale ici)
+    bot_app.add_handler(CommandHandler("start", start_command))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_message))
+    bot_app.add_handler(CallbackQueryHandler(button_callback))
 
     print("Le bot est opérationnel...")
-    app.run_polling()
+    bot_app.run_polling()
+
 
 if __name__ == "__main__":
     main()
-      
+    
