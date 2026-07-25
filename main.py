@@ -52,22 +52,35 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Vérifie si l'expéditeur est un administrateur du groupe."""
+    """Vérifie si l'expéditeur du message est un administrateur."""
     chat = update.effective_chat
     user = update.effective_user
     
+    # S'il n'y a pas d'utilisateur (ex: post automatique de canal), on refuse ou gère différemment
+    if not user:
+        return False
+
     if chat.type == "private":
         return True
-    
-    chat_member = await context.bot.get_chat_member(chat.id, user.id)
-    return chat_member.status in ["administrator", "creator"]
+
+    try:
+        chat_member = await context.bot.get_chat_member(chat.id, user.id)
+        return chat_member.status in ["administrator", "creator"]
+    except Exception as e:
+        logging.error(f"Erreur lors de la vérification admin: {e}")
+        return False
 
 
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Intercepte les messages des admins et propose le reformatage/prévisualisation."""
+    """Intercepte les messages contenant des liens."""
     message = update.effective_message
     
-    if not message or not message.text or not await is_admin(update, context):
+    # Vérification sécurisée de l'existence du message et de l'utilisateur
+    if not message or not message.text:
+        return
+        
+    # Si le message vient d'un groupe/canal et n'est pas émis par un admin, on ignore
+    if not await is_admin(update, context):
         return
 
     entities = message.entities or []
@@ -84,13 +97,15 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not links:
         return
 
+    user_id = update.effective_user.id if update.effective_user else message.chat.id
+
     msg_key = f"msg_{message.chat.id}_{message.message_id}"
     context.bot_data[msg_key] = {
         "text": message.text,
         "links": links,
         "chat_id": message.chat.id,
         "message_id": message.message_id,
-        "user_id": update.effective_user.id
+        "user_id": user_id
     }
 
     keyboard = [
@@ -108,7 +123,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-
+    
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Gère l'ensemble des interactions avec les boutons."""
