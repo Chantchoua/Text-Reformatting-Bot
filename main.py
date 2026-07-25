@@ -15,6 +15,23 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+import threading
+from flask import Flask
+
+# Petit serveur Web dummy pour valider le Web Service sur Render
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot Telegram actif !"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+# Lancer Flask dans un thread séparé
+threading.Thread(target=run_flask, daemon=True).start()
+
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
