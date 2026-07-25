@@ -145,9 +145,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             link_buttons.append(row)
             row = []
 
-# S'il reste un bouton impair à la fin
-if row:
-    link_buttons.append(row)
+    # S'il reste un bouton impair à la fin
+    if row:
+        link_buttons.append(row)
     
 
     if action == "prev":
