@@ -26,7 +26,7 @@ def home():
     return "Bot Telegram actif !"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
 
 # Lancement du serveur Web dans un thread séparé
