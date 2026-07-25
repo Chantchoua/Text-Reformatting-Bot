@@ -132,10 +132,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = stored_data["chat_id"]
     orig_msg_id = stored_data["message_id"]
 
+    # Organise les boutons par rangées de 2
     link_buttons = []
+    row = []
+
     for label, url in links:
-        btn_label = label if len(label) <= 30 else label[:27] + "..."
-        link_buttons.append([InlineKeyboardButton(text=f"🔗 {btn_label}", url=url)])
+        btn_label = label if len(label) <= 15 else label[:12] + "..."
+        row.append(InlineKeyboardButton(text=f"🔗 {btn_label}", url=url))
+    
+        # Dès qu'on a 2 boutons, on valide la ligne
+        if len(row) == 2:
+            link_buttons.append(row)
+            row = []
+
+# S'il reste un bouton impair à la fin
+if row:
+    link_buttons.append(row)
+    
 
     if action == "prev":
         user_id = query.from_user.id
