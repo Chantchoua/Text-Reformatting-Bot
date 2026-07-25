@@ -72,40 +72,46 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 
 async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Intercepte les messages contenant des liens."""
-    message = update.effective_message
+    """Intercepte les messages et channel posts contenant des liens."""
+    # Récupère le message qu'il vienne d'un groupe ou d'un canal
+    message = update.effective_message or update.channel_post
     
-    # Vérification sécurisée de l'existence du message et de l'utilisateur
-    if not message or not message.text:
-        return
-        
-    # Si le message vient d'un groupe/canal et n'est pas émis par un admin, on ignore
-    if not await is_admin(update, context):
+    if not message:
         return
 
-    entities = message.entities or []
+    # On récupère le texte (soit un message texte classique, soit la légende d'un média)
+    full_text = message.text or message.caption
+    if not full_text:
+        return
+        
+    # Dans un canal, les posts sont TOUJOURS faits par des admins. 
+    # On ne vérifie is_admin que si on est dans un groupe/supergroupe.
+    chat = update.effective_chat
+    if chat.type in ["group", "supergroup"]:
+        if not await is_admin(update, context):
+            return
+
+    # Extraction des entités (liens)
+    entities = message.entities or message.caption_entities or []
     links = []
 
     for entity in entities:
         if entity.type == "url":
-            url = message.text[entity.offset : entity.offset + entity.length]
+            url = full_text[entity.offset : entity.offset + entity.length]
             links.append((url, url))
         elif entity.type == "text_link":
-            anchor_text = message.text[entity.offset : entity.offset + entity.length]
+            anchor_text = full_text[entity.offset : entity.offset + entity.length]
             links.append((anchor_text, entity.url))
 
     if not links:
         return
 
-    user_id = update.effective_user.id if update.effective_user else message.chat.id
-
-    msg_key = f"msg_{message.chat.id}_{message.message_id}"
+    msg_key = f"msg_{chat.id}_{message.message_id}"
     context.bot_data[msg_key] = {
-        "text": message.text,
+        "text": full_text,
         "links": links,
-        "chat_id": message.chat.id,
+        "chat_id": chat.id,
         "message_id": message.message_id,
-        "user_id": user_id
     }
 
     keyboard = [
@@ -122,7 +128,7 @@ async def handle_admin_message(update: Update, context: ContextTypes.DEFAULT_TYP
         "💡 **Option Admin :** Ce message contient des liens.",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
-    )
+        )
     
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -213,14 +219,22 @@ def main():
 
     bot_app = ApplicationBuilder().token(TOKEN).build()
 
-    # Enregistrement des handlers (Correction principale ici)
     bot_app.add_handler(CommandHandler("start", start_command))
-    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_message))
+    
+    # MODIFICATION ICI : On écoute TEXTE + LÉGENDES D'IMAGES, dans Groupes ET Canaux
+    text_or_caption = (filters.TEXT | filters.CAPTION) & ~filters.COMMAND
+    
+    # Handler pour les groupes / MP
+    bot_app.add_handler(MessageHandler(text_or_caption, handle_admin_message))
+    
+    # Handler spécifique pour les CANAUX (Channel Posts)
+    bot_app.add_handler(MessageHandler(filters.ChatType.CHANNEL & text_or_caption, handle_admin_message))
+    
     bot_app.add_handler(CallbackQueryHandler(button_callback))
 
     print("Le bot est opérationnel...")
     bot_app.run_polling()
-
+    
 
 if __name__ == "__main__":
     main()
