@@ -34,6 +34,22 @@ threading.Thread(target=run_flask, daemon=True).start()
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Répond à la commande /start en message privé."""
+    user = update.effective_user
+    welcome_text = (
+        f"👋 Bonjour {user.first_name} !\n\n"
+        "Je suis le bot de reformatage de messages avec boutons.\n\n"
+        "📌 **Comment m'utiliser ?**\n"
+        "1. Ajoutez-moi à votre groupe ou canal.\n"
+        "2. Donnez-moi les droits d'administrateur (notamment la suppression de messages).\n"
+        "3. Lorsqu'un admin publie un message contenant des liens, je proposerai de le reformater "
+        "ou de vous envoyer une prévisualisation ici même en privé."
+    )
+    await update.message.reply_text(welcome_text, parse_mode="Markdown")
+
+
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Vérifie si l'expéditeur est un administrateur du groupe."""
     chat = update.effective_chat
